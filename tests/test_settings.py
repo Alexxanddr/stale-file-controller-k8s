@@ -63,6 +63,18 @@ class Configuration(unittest.TestCase):
         self.assertEqual(discover([p], [], [], host_path='/var/mnt/union',
                                   excluded_uids={p['metadata']['uid']}), [])
 
+    def test_ambiguous_infrastructure_selector_never_deletes_multiple_servers(self):
+        import copy
+        api, state = Fake(), {}
+        duplicate = copy.deepcopy(api.infrastructure['mergerfs'][0])
+        duplicate['metadata']['uid'] = 'another-server'
+        api.infrastructure['mergerfs'].append(duplicate)
+        recovery = Recovery(api)
+        for _ in range(4):
+            recovery.tick(state)
+        self.assertEqual(state['phase'], 'mergerfs')
+        self.assertFalse(any(e.startswith('restart:') for e in api.events))
+
     def test_poll_tuning_does_not_restart_storage(self):
         self.assertEqual(Settings(idle_interval=30).identity(), Settings(idle_interval=60).identity())
 

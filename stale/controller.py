@@ -182,12 +182,16 @@ class Recovery:
         # Checkpoint intent before deleting; a retry only ever deletes the same UID.
         requests = state['requests']
         if app not in requests:
+            pods = self.api.infra(app)
+            if len(pods) > 1:
+                LOG.error('Infrastructure selector for %s matches %s Pods; waiting for an unambiguous target', app, len(pods))
+                return
             requests[app] = [dict(metadata={k: p['metadata'][k] for k in ('name', 'namespace', 'uid')},
                                   restart=not p['metadata'].get('deletionTimestamp') and
                                   p.get('status', {}).get('phase') == 'Running' and
                                   not any('waiting' in c.get('state', {}) or 'terminated' in c.get('state', {})
                                           for c in p.get('status', {}).get('containerStatuses', [])))
-                             for p in self.api.infra(app)]
+                             for p in pods]
             return
         for pod in requests[app]:
             if pod['restart']:
