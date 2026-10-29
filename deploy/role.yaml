@@ -6,7 +6,7 @@ metadata:
 rules:
   - apiGroups: ['']
     resources: [pods/exec]
-    verbs: [get]
+    verbs: [get, create]
   - apiGroups: ['']
     resources: [configmaps]
     resourceNames: [storage-recovery]

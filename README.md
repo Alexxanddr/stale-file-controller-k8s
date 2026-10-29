@@ -177,11 +177,14 @@ not the entire directory tree.
 The agent needs privileged root, hostPID and hostNetwork. It has no API token.
 The controller runs non-root with a read-only root filesystem and no Linux
 capabilities. RBAC grants cluster-wide **list Pods/PVCs/PVs and delete Pods**,
-exec WebSocket GET only in its namespace, get/patch only its named checkpoint,
+get/create on pods/exec only in its namespace, get/patch only its named checkpoint,
 and get/update only its named Lease. No Secret access, Pod creation, deployment
 edits, ephemeral containers or volume writes. Standard RBAC cannot restrict
 dynamic deletion by label; fixed-namespace installations can replace that
-permission with namespace RoleBindings. See [SECURITY.md](SECURITY.md).
+permission with namespace RoleBindings. See [SECURITY.md](SECURITY.md). Kubernetes' default
+`AuthorizePodWebsocketUpgradeCreatePermission` check also requires `create`
+for a WebSocket GET upgrade, so both exec verbs are included in the namespaced
+Role ([upstream feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/)).
 
 ## NFS CSI behavior
 
