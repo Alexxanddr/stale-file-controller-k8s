@@ -24,15 +24,17 @@ ghcr.io/alexxanddr/stale-file-controller-k8s:<git-sha>
 ```text
 MergerFS restart (or await an ongoing restart)
   → verify FUSE + read the configured union directory
-    → NFS-Ganesha restart (or await its ongoing restart)
+    → NFS-Ganesha restart after the MergerFS gate
       → verify backing mount + read the real NFS export
         → restart discovered clients
           → wait for replacements Ready + verify their actual mounts
 ```
 
 The first startup performs this cycle to establish a verified baseline, so
-activation briefly interrupts storage workloads. A running but unready server
-is restarted; Pending, terminating or actively restarting containers are awaited.
+activation briefly interrupts storage workloads. A running but unready MergerFS server is restarted; its Pending, terminating
+or actively restarting containers are awaited. Ganesha is recreated after
+the MergerFS gate even if it was crash-looping; an already deleting Ganesha
+Pod is awaited until its replacement is ready.
 Ganesha is always processed after MergerFS passes its filesystem check, even if
 both servers originally restarted together.
 

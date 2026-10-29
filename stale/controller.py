@@ -188,9 +188,10 @@ class Recovery:
                 return
             requests[app] = [dict(metadata={k: p['metadata'][k] for k in ('name', 'namespace', 'uid')},
                                   restart=not p['metadata'].get('deletionTimestamp') and
-                                  p.get('status', {}).get('phase') == 'Running' and
-                                  not any('waiting' in c.get('state', {}) or 'terminated' in c.get('state', {})
-                                          for c in p.get('status', {}).get('containerStatuses', [])))
+                                  (app == 'nfs-ganesha' or (
+                                      p.get('status', {}).get('phase') == 'Running' and
+                                      not any('waiting' in c.get('state', {}) or 'terminated' in c.get('state', {})
+                                              for c in p.get('status', {}).get('containerStatuses', [])))))
                              for p in pods]
             return
         for pod in requests[app]:

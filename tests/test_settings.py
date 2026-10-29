@@ -75,6 +75,18 @@ class Configuration(unittest.TestCase):
         self.assertEqual(state['phase'], 'mergerfs')
         self.assertFalse(any(e.startswith('restart:') for e in api.events))
 
+    def test_nfs_crashloop_is_recreated_after_mergerfs_gate(self):
+        api, state = Fake(), {}
+        api.infrastructure['nfs-ganesha'][0]['status']['containerStatuses'][0]['state'] = {
+            'waiting': {'reason': 'CrashLoopBackOff'}}
+        recovery = Recovery(api)
+        for _ in range(12):
+            recovery.tick(state)
+            if 'restart:nfs-ganesha' in api.events:
+                break
+        self.assertIn('restart:nfs-ganesha', api.events)
+        self.assertLess(api.events.index('check:mergerfs'), api.events.index('restart:nfs-ganesha'))
+
     def test_poll_tuning_does_not_restart_storage(self):
         self.assertEqual(Settings(idle_interval=30).identity(), Settings(idle_interval=60).identity())
 
