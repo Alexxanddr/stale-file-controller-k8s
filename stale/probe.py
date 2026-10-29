@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -18,29 +19,50 @@ def unescape(value):
     return value
 
 
-def mount_type(text, path):
+def mount_record(text, path):
     matches = []
     for line in text.splitlines():
         left, right = line.split(' - ', 1)
-        target = unescape(left.split()[4])
+        fields = left.split()
+        target = unescape(fields[4])
         if path == target or path.startswith(target.rstrip('/') + '/'):
-            matches.append((len(target), right.split()[0]))
-    return max(matches, default=(0, 'missing'))[1]
+            matches.append((len(target), fields[0], right.split()[0]))
+    return max(matches, default=(0, 'missing', 'missing'))
 
 
-def read_directory(path):
+def mount_type(text, path):
+    return mount_record(text, path)[2]
+
+
+def read_directory(path, extra_paths=(), mountinfo=None):
+    root_id = mount_record(mountinfo, path)[1] if mountinfo else None
+
+    def same_mount(candidate):
+        return mountinfo is None or mount_record(mountinfo, candidate)[1] == root_id
+
     os.stat(path)
     os.statvfs(path)
     with os.scandir(path) as entries:
         for i, entry in enumerate(entries):
-            entry.stat()
+            if same_mount(entry.path):
+                # Never traverse a symlink into an unrelated filesystem.
+                entry.stat(follow_symlinks=False)
             if i >= 127:
                 break
-    # Check the real incident's child even if it falls outside the sample.
-    try:
-        os.stat(path.rstrip('/') + '/torrents')
-    except FileNotFoundError:
-        pass
+    for relative in extra_paths:
+        if not relative or relative.startswith('/') or '..' in relative.split('/'):
+            raise ValueError('extra path must remain below the mount')
+        candidate = path.rstrip('/')
+        try:
+            for part in relative.split('/'):
+                candidate += '/' + part
+                if not same_mount(candidate) or stat.S_ISLNK(os.lstat(candidate).st_mode):
+                    break
+            else:
+                os.statvfs(candidate)
+        except FileNotFoundError:
+            # Optional application paths need not exist on every mounted share.
+            pass
 
 
 def worker(request):
@@ -53,9 +75,10 @@ def worker(request):
         os.makedirs('/tmp/nfs-check', exist_ok=True)
         subprocess.run(['mount', '-t', 'nfs', '-o',
                         'ro,vers=4.1,proto=tcp,soft,timeo=10,retrans=1',
-                        request['server'] + ':/MediaFactory', '/tmp/nfs-check'],
+                        request['server'] + ':' + request['exportPath'], '/tmp/nfs-check'],
                        check=True, timeout=12, capture_output=True)
-        read_directory('/tmp/nfs-check')
+        read_directory('/tmp/nfs-check', request.get('extraPaths', ()),
+                       Path('/proc/self/mountinfo').read_text())
         return
     cid = request['containerID'].split('://')[-1]
     if len(cid) < 12 or not all(c in '0123456789abcdef' for c in cid):
@@ -72,7 +95,8 @@ def worker(request):
             continue
     if target is None:
         raise OSError(errno.EAGAIN, 'container process unavailable')
-    fs = mount_type((target / 'mountinfo').read_text(), request['path'])
+    mountinfo = (target / 'mountinfo').read_text()
+    fs = mount_type(mountinfo, request['path'])
     expected = request['kind']
     if not (fs.startswith('fuse') if expected == 'fuse' else fs in ('nfs', 'nfs4')):
         raise OSError(errno.ENOTCONN, 'expected ' + expected + ', found ' + fs)
@@ -88,7 +112,7 @@ def worker(request):
     os.chroot('.')
     os.close(root_fd)
     os.chdir('/')
-    read_directory(request['path'])
+    read_directory(request['path'], request.get('extraPaths', ()), mountinfo)
 
 
 def supervise(request):
@@ -118,7 +142,7 @@ def supervise(request):
         return {'status': 'temporary', 'detail': 'filesystem operation timed out (possible blocked NFS I/O)'}
 
 
-if __name__ == '__main__':
+def main():
     request = json.loads(sys.argv[-1])
     if '--worker' in sys.argv:
         try:
@@ -132,3 +156,7 @@ if __name__ == '__main__':
     else:
         result = supervise(request)
     print(json.dumps(result), flush=True)
+
+
+if __name__ == '__main__':
+    main()

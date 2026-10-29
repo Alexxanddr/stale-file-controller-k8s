@@ -19,7 +19,7 @@ until docker logs "$container" 2>&1 | grep -q READY; do
 done
 result=$(docker run --rm --privileged --pid host --cgroupns host --network none --read-only --tmpfs /tmp \
     "$image" python -m stale.probe \
-    "{\"mode\":\"container\",\"containerID\":\"containerd://$cid\",\"path\":\"/mnt/merged/MediaFactory\",\"kind\":\"fuse\"}")
+    "{\"mode\":\"container\",\"containerID\":\"containerd://$cid\",\"path\":\"/mnt/merged/data\",\"kind\":\"fuse\"}")
 printf '%s\n' "$result"
 printf '%s\n' "$result" | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "ok"'
 result=$(docker run --rm --privileged --pid host --cgroupns host --network none --read-only --tmpfs /tmp \

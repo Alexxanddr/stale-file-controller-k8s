@@ -30,14 +30,15 @@ def fingerprint(pods):
         for s in p.get('status', {}).get('containerStatuses', [])))) for p in pods)
 
 
-def discover(pods, claims, volumes, namespace='storage-recovery'):
+def discover(pods, claims, volumes, namespace='storage-recovery',
+             host_path='/run/mergerfs', excluded_uids=()):
     claims = {(p['metadata']['namespace'], p['metadata']['name']): p for p in claims}
     volumes = {p['metadata']['name']: p for p in volumes}
     found = []
     for pod in pods:
         meta, spec = pod['metadata'], pod['spec']
-        if meta['namespace'] == namespace or (meta['namespace'] == 'mergerfs' and
-                meta.get('labels', {}).get('app') in ('mergerfs', 'nfs-ganesha')):
+        if meta['uid'] in excluded_uids or (meta['namespace'] == namespace and
+                meta.get('labels', {}).get('app') in ('storage-recovery', 'storage-probe')):
             continue
         if pod.get('status', {}).get('phase') in ('Succeeded', 'Failed'):
             continue
@@ -53,7 +54,7 @@ def discover(pods, claims, volumes, namespace='storage-recovery'):
                 'path', pv.get('local', {}).get('path', '')))
             if csi.get('driver') == 'nfs.csi.k8s.io' or 'nfs' in pv or 'nfs' in vol:
                 selected[vol['name']] = 'nfs'
-            elif under(direct):
+            elif under(direct, host_path):
                 selected[vol['name']] = 'fuse'
         mounts = []
         for container in spec.get('containers', []) + spec.get('initContainers', []):

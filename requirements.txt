@@ -1,1 +1,1 @@
-kubernetes==34.1.0
+-e .

@@ -10,15 +10,16 @@ from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
 from kubernetes.stream import stream
 from stale.model import advance, discover, fingerprint, ready
+from stale.settings import Settings
 
 LOG = logging.getLogger('recovery')
 NAMESPACE = os.getenv('POD_NAMESPACE', 'storage-recovery')
-SERVER = os.getenv('NFS_SERVER', '192.168.20.3')
 NAME = 'storage-recovery'
 
 
 class API:
-    def __init__(self):
+    def __init__(self, settings):
+        self.settings = settings
         config.load_incluster_config()
         configuration = client.Configuration.get_default_copy()
         configuration.retries = 0
@@ -38,12 +39,13 @@ class API:
         return self.plain(method(*args, label_selector=selector, _request_timeout=15))['items']
 
     def clients(self):
+        excluded = {p['metadata']['uid'] for role in ('mergerfs', 'nfs-ganesha') for p in self.infra(role)}
         return discover(self.pods(), self.plain(self.core.list_persistent_volume_claim_for_all_namespaces(
             _request_timeout=15))['items'], self.plain(self.core.list_persistent_volume(
-                _request_timeout=15))['items'], NAMESPACE)
+                _request_timeout=15))['items'], NAMESPACE, self.settings.mergerfs_host_path, excluded)
 
     def infra(self, app):
-        return self.pods('mergerfs', 'app=' + app)
+        return self.pods(self.settings.namespace(app), self.settings.selector(app))
 
     def load(self):
         cm = self.core.read_namespaced_config_map(NAME, NAMESPACE, _request_timeout=15)
@@ -56,6 +58,7 @@ class API:
 
     def delete(self, pod):
         m = pod['metadata']
+        LOG.warning('Requesting graceful Pod restart %s/%s uid=%s', m['namespace'], m['name'], m['uid'])
         try:
             self.core.delete_namespaced_pod(m['name'], m['namespace'], body={
                 'preconditions': {'uid': m['uid']}}, _request_timeout=15)
@@ -73,7 +76,8 @@ class API:
         if not cid:
             return {'status': 'temporary', 'detail': 'container not running'}
         return self.agent(pod['spec'].get('nodeName'), {'mode': 'container', 'containerID': cid,
-                                                      'path': mount['path'], 'kind': mount['kind']})
+                                                      'path': mount['path'], 'kind': mount['kind'],
+                                                      'extraPaths': list(self.settings.extra_paths)})
 
     def agent(self, node, request):
         agents = [p for p in self.pods(NAMESPACE, 'app=storage-probe')
@@ -143,18 +147,21 @@ def owner(pod):
 class Recovery:
     def __init__(self, api):
         self.api = api
+        self.settings = getattr(api, 'settings', Settings())
 
     def infra_up(self, app):
         pods = self.api.infra(app)
         if len(pods) != 1 or not ready(pods[0]):
             return False
-        path = '/mnt/merged/MediaFactory' if app == 'mergerfs' else '/export/MediaFactory'
-        result = self.api.probe(pods[0], {'container': app, 'path': path, 'kind': 'fuse'})
+        result = self.api.probe(pods[0], {'container': self.settings.container(app),
+                                          'path': self.settings.path(app), 'kind': 'fuse'})
         if result['status'] != 'ok':
             LOG.warning('%s filesystem check: %s', app, result)
             return False
         if app == 'nfs-ganesha':
-            result = self.api.agent(pods[0]['spec']['nodeName'], {'mode': 'export', 'server': SERVER})
+            result = self.api.agent(pods[0]['spec']['nodeName'], {'mode': 'export', 'server': self.settings.nfs_server,
+                           'exportPath': self.settings.nfs_export_path,
+                           'extraPaths': list(self.settings.extra_paths)})
             if result['status'] != 'ok':
                 LOG.warning('NFS export check: %s', result)
                 return False
@@ -185,6 +192,11 @@ class Recovery:
         advance(state)
 
     def tick(self, state):
+        configuration = self.settings.identity()
+        if state.get('configuration', configuration) != configuration or (
+                state.get('active') and 'configuration' not in state):
+            self.start(state, 'storage configuration changed')
+        state['configuration'] = configuration
         signature = self.signature()
         if not state.get('active'):
             reason = None
@@ -205,8 +217,8 @@ class Recovery:
                             LOG.error('Client diagnostic requires attention: %s %s %s',
                                       entry['pod']['metadata']['name'], mount, result)
                 state['failures'] = state.get('failures', 0) + 1 if temporary else 0
-                if state['failures'] >= 3:
-                    reason = 'client filesystem unavailable for three scans'
+                if state['failures'] >= self.settings.transient_threshold:
+                    reason = 'client filesystem unavailable for configured consecutive scans'
             if reason:
                 self.start(state, reason)
             return
@@ -244,6 +256,7 @@ class Recovery:
                 state['targets'] = [dict(pod={'metadata': {k: e['pod']['metadata'][k]
                         for k in ('name', 'namespace', 'uid', 'ownerReferences')
                         if k in e['pod']['metadata']}}) for e in self.api.clients()]
+                LOG.info('Discovered %s clients for restart', len(state['targets']))
                 state['snapshotted'] = True
                 return
             deletion_failed = False
@@ -288,6 +301,9 @@ class Recovery:
                         LOG.warning('Replacement mount not healthy: %s %s %s',
                                     entry['pod']['metadata']['name'], mount, result)
                         return
+                    LOG.info('Client mount verified %s/%s %s (%s)',
+                             entry['pod']['metadata']['namespace'], entry['pod']['metadata']['name'],
+                             mount['path'], mount['kind'])
             advance(state)
         elif phase == 'complete':
             state.update(active=False, baseline=signature, failures=0)
@@ -302,7 +318,10 @@ class Recovery:
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-    api = API()
+    settings = Settings.from_env()
+    LOG.info('Configuration: storage namespace=%s mergerfs=%s nfs=%s export=%s',
+             settings.storage_namespace, settings.mergerfs_selector, settings.nfs_selector, settings.nfs_export_path)
+    api = API(settings)
     while not api.lease():
         time.sleep(10)
     threading.Thread(target=api.keep_lease, daemon=True).start()
@@ -314,7 +333,7 @@ def main():
 
         def do_GET(self):
             state = Health.state
-            blocked = state.get('active') and time.time() - state.get('started', time.time()) > 900
+            blocked = state.get('active') and time.time() - state.get('started', time.time()) > settings.blocked_after
             self.send_response(503 if blocked else 200)
             self.end_headers()
             self.wfile.write(json.dumps({'active': state.get('active', False),
@@ -332,10 +351,10 @@ def main():
             recovery.tick(state)
             api.save(state, version)
             Health.state = state
-            if state.get('active') and time.time() - state['started'] > 900:
-                LOG.error('Recovery blocked >15 minutes in %s; no forced deletion; inspect pod events and node I/O',
+            if state.get('active') and time.time() - state['started'] > settings.blocked_after:
+                LOG.error('Recovery exceeded configured deadline in %s; no forced deletion; inspect pod events and node I/O',
                           state['phase'])
-            delay = 5 if state.get('active') else 30
+            delay = settings.recovery_interval if state.get('active') else settings.idle_interval
         except Exception:
             LOG.exception('Recovery operation failed; retaining checkpoint and retrying')
             delay = min(delay * 2, 60)

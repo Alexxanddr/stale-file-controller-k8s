@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../deploy
+patches:
+  - target:
+      kind: ConfigMap
+      name: storage-recovery-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: storage-recovery-config
+      data:
+        STORAGE_NAMESPACE: filesystems
+        MERGERFS_SELECTOR: component=union
+        NFS_SELECTOR: component=exports
+        MERGERFS_CONTAINER: union
+        NFS_CONTAINER: exports
+        MERGERFS_PATH: /mnt/union/library
+        NFS_BACKING_PATH: /srv/library
+        MERGERFS_HOST_PATH: /var/mnt/union
+        NFS_SERVER: nfs.filesystems.svc.cluster.local
+        NFS_EXPORT_PATH: /library
+        EXTRA_PATHS: '["incoming"]'

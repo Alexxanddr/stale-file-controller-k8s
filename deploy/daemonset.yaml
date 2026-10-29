@@ -3,10 +3,6 @@ kind: DaemonSet
 metadata:
   name: storage-probe
   namespace: storage-recovery
-  annotations:
-    keel.sh/policy: force
-    keel.sh/trigger: poll
-    keel.sh/matchTag: 'true'
 spec:
   selector:
     matchLabels:

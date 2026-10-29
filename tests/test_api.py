@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, mock_open
 from kubernetes.client.exceptions import ApiException
 from stale.controller import API, Recovery
+from stale.settings import Settings
 from stale.probe import supervise
 from test_recovery import Fake
 
@@ -15,6 +16,7 @@ class Safety(unittest.TestCase):
     def api(self):
         api = object.__new__(API)
         api.identity = 'this-worker'
+        api.settings = Settings()
         api.coord = MagicMock()
         api.core = MagicMock()
         return api

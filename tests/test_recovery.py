@@ -70,9 +70,9 @@ class Discovery(unittest.TestCase):
         p = consumer()['pod']
         p['spec']['volumes'] = [{'name': 'data', 'hostPath': {'path': '/run/mergerfs'}}]
         self.assertEqual(len(discover([p], [], [])), 1)
-        for ns, app in [('mergerfs', 'mergerfs'), ('mergerfs', 'nfs-ganesha'), ('storage-recovery', 'x')]:
+        for ns, app in [('mergerfs', 'mergerfs'), ('mergerfs', 'nfs-ganesha'), ('storage-recovery', 'storage-probe')]:
             p['metadata'].update(namespace=ns, labels={'app': app})
-            self.assertEqual(discover([p], [], []), [])
+            self.assertEqual(discover([p], [], [], excluded_uids={p['metadata']['uid']}), [])
         p['metadata']['namespace'] = 'apps'
         p['spec']['volumes'][0]['hostPath']['path'] = '/run/mergerfs-other'
         self.assertEqual(discover([p], [], []), [])

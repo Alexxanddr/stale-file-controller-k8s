@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stale-file-controller-k8s"
+version = "0.1.0"
+description = "Coordinated Kubernetes recovery for MergerFS, NFS-Ganesha and their clients"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Alessandro Sottile"}]
+dependencies = ["kubernetes>=34.1.0,<35"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: System :: Systems Administration",
+]
+
+[project.urls]
+Repository = "https://github.com/Alexxanddr/stale-file-controller-k8s"
+Issues = "https://github.com/Alexxanddr/stale-file-controller-k8s/issues"
+
+[project.scripts]
+stale-file-controller = "stale.controller:main"
+stale-file-probe = "stale.probe:main"
+
+[tool.setuptools.packages.find]
+include = ["stale*"]
