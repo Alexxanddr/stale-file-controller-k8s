@@ -1,0 +1,4 @@
+*
+!requirements.txt
+!stale/
+!stale/*.py
