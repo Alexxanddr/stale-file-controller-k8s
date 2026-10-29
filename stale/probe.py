@@ -1,4 +1,5 @@
 """Runs in a privileged, hostPID agent. No binaries from the target image are used."""
+import argparse
 import ctypes
 import errno
 import fcntl
@@ -143,8 +144,12 @@ def supervise(request):
 
 
 def main():
-    request = json.loads(sys.argv[-1])
-    if '--worker' in sys.argv:
+    parser = argparse.ArgumentParser(description='Probe a container mount or a fresh NFS export (Linux privileged agent).')
+    parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('request', type=json.loads, help='JSON request; see controller-generated diagnostics')
+    args = parser.parse_args()
+    request = args.request
+    if args.worker:
         try:
             worker(request)
             result = {'status': 'ok'}

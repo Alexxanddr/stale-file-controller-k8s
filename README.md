@@ -83,6 +83,10 @@ cluster-scoped RBAC names.
 
 ## Configuration
 
+The installed `stale-file-controller --help` and `--version` commands work
+without Kubernetes access. `NFS_SERVER=nfs.example.test stale-file-controller
+--check-config` validates and prints configuration without contacting a cluster.
+
 Environment variables are loaded from `storage-recovery-config`; they can also
 be set directly on the Deployment. No values are secrets. The controller uses
 its in-cluster service account, not a kubeconfig file.

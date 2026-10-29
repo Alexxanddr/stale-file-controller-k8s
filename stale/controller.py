@@ -1,5 +1,8 @@
 """Serialized, checkpointed recovery. All mutations use UID or resourceVersion fences."""
+import argparse
+from dataclasses import asdict
 import datetime as dt
+from importlib.metadata import PackageNotFoundError, version as package_version
 import json
 import logging
 import os
@@ -317,8 +320,20 @@ class Recovery:
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Recover a configurable MergerFS/NFS-Ganesha storage chain on Kubernetes.')
+    try:
+        release = package_version('stale-file-controller-k8s')
+    except PackageNotFoundError:
+        release = 'development'
+    parser.add_argument('--version', action='version', version=release)
+    parser.add_argument('--check-config', action='store_true',
+                        help='validate environment configuration and print it without accessing Kubernetes')
+    args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     settings = Settings.from_env()
+    if args.check_config:
+        print(json.dumps(asdict(settings), indent=2))
+        return
     LOG.info('Configuration: storage namespace=%s mergerfs=%s nfs=%s export=%s',
              settings.storage_namespace, settings.mergerfs_selector, settings.nfs_selector, settings.nfs_export_path)
     api = API(settings)

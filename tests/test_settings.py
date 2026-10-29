@@ -108,5 +108,29 @@ class FilesystemIsolation(unittest.TestCase):
         statfs.assert_called_once_with('/data')
 
 
+class CommandLine(unittest.TestCase):
+    def test_config_check_does_not_access_kubernetes(self):
+        import contextlib
+        import io
+        import json
+        from stale.controller import main
+        output = io.StringIO()
+        with patch.dict(os.environ, {'NFS_SERVER': 'nfs.example.test'}, clear=True), \
+                patch('sys.argv', ['stale-file-controller', '--check-config']), \
+                patch('stale.controller.API') as api, contextlib.redirect_stdout(output):
+            main()
+        api.assert_not_called()
+        self.assertEqual(json.loads(output.getvalue())['nfs_server'], 'nfs.example.test')
+
+    def test_help_does_not_require_environment_or_cluster(self):
+        import contextlib
+        import io
+        from stale.controller import main
+        with patch.dict(os.environ, {}, clear=True), patch('sys.argv', ['stale-file-controller', '--help']), \
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as exit:
+            main()
+        self.assertEqual(exit.exception.code, 0)
+
+
 if __name__ == '__main__':
     unittest.main()
